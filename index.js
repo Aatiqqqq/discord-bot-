@@ -1,12 +1,15 @@
 const {
   Client,
   GatewayIntentBits,
-  Partials
+  Partials,
+  REST,
+  Routes
 } = require("discord.js");
 const fs = require("fs");
 
 // ===== CONFIG =====
 const TOKEN = process.env.TOKEN;
+const CLIENT_ID = "1455664767363715293";
 const SOLAR_CHANNEL_ID = "1452279184847142932";
 const LEADERBOARD_CHANNEL_ID = "1455964097656131708";
 const EMOJI = "🌿";
@@ -26,16 +29,36 @@ let points = {};
 if (fs.existsSync("points.json")) {
   points = JSON.parse(fs.readFileSync("points.json"));
 }
-
-function savePoints() {
+const savePoints = () =>
   fs.writeFileSync("points.json", JSON.stringify(points, null, 2));
-}
 
-// Track reactions per reminder
+// Track reminder messages
 const trackedMessages = new Map();
 
+// ===== REGISTER SLASH COMMAND =====
+const commands = [
+  {
+    name: "my-points",
+    description: "Show your family points and rank"
+  }
+];
+
+const rest = new REST({ version: "10" }).setToken(TOKEN);
+
+(async () => {
+  try {
+    await rest.put(
+      Routes.applicationCommands(CLIENT_ID),
+      { body: commands }
+    );
+    console.log("✅ Slash command registered");
+  } catch (err) {
+    console.error("Slash command error:", err);
+  }
+})();
+
 // ===== BOT READY =====
-client.once("clientReady", async () => {
+client.once("clientReady", () => {
   console.log("✅ Bot logged in and running");
 
   // 🔥 TEST MODE — EVERY 10 SECONDS
@@ -91,6 +114,36 @@ client.on("messageReactionAdd", async (reaction, user) => {
   }
 
   await leaderboardChannel.send(text);
+});
+
+// ===== /my-points COMMAND =====
+client.on("interactionCreate", async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === "my-points") {
+    const id = interaction.user.id;
+
+    if (!points[id]) {
+      return interaction.reply({
+        content: "❌ You have no family points yet.",
+        ephemeral: true
+      });
+    }
+
+    const sorted = Object.entries(points)
+      .sort((a, b) => b[1] - a[1]);
+
+    const rank = sorted.findIndex(x => x[0] === id) + 1;
+
+    interaction.reply({
+      ephemeral: true,
+      content:
+        `🌿 **YOUR FAMILY POINTS**\n\n` +
+        `👤 Name: ${interaction.user.username}\n` +
+        `🏆 Rank: #${rank}\n` +
+        `🌿 Points: ${points[id]} 🌿`
+    });
+  }
 });
 
 // ===== LOGIN =====
