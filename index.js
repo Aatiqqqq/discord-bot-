@@ -7,20 +7,21 @@ const {
   PermissionsBitField,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  MessageFlags
 } = require("discord.js");
 const fs = require("fs");
 
 // ========= CONFIG =========
 const TOKEN = process.env.TOKEN;
-const CLIENT_ID = "1455664767363715293";       // pasted in code
+const CLIENT_ID = "1455664767363715293";
 const SOLAR_CHANNEL_ID = "1452279184847142932";
 const LEADERBOARD_CHANNEL_ID = "1455964097656131708";
 const REACTION_EMOJI = "🌿";
 // ==========================
 
 if (!TOKEN) {
-  console.error("❌ TOKEN missing");
+  console.error("TOKEN missing");
   process.exit(1);
 }
 
@@ -39,11 +40,17 @@ let points = fs.existsSync("points.json")
   ? JSON.parse(fs.readFileSync("points.json"))
   : {};
 
+let leaderboardData = fs.existsSync("leaderboard.json")
+  ? JSON.parse(fs.readFileSync("leaderboard.json"))
+  : {};
+
 const savePoints = () =>
   fs.writeFileSync("points.json", JSON.stringify(points, null, 2));
 
+const saveLeaderboard = () =>
+  fs.writeFileSync("leaderboard.json", JSON.stringify(leaderboardData, null, 2));
+
 const trackedMessages = new Map();
-let leaderboardMessageId = null;
 
 // ===== SLASH COMMAND (ADMIN) =====
 const commands = [
@@ -80,14 +87,8 @@ async function buildLeaderboard() {
 
 // ===== READY =====
 client.once("ready", async () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
+  console.log(`Logged in as ${client.user.tag}`);
 
-  client.user.setPresence({
-    status: "online",
-    activities: [{ name: "Family Points 🌿", type: 0 }]
-  });
-
-  // ---- CREATE LEADERBOARD MESSAGE ----
   const leaderboardChannel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
 
   const row = new ActionRowBuilder().addComponents(
@@ -97,14 +98,29 @@ client.once("ready", async () => {
       .setStyle(ButtonStyle.Success)
   );
 
-  const leaderboardMsg = await leaderboardChannel.send({
-    content: await buildLeaderboard(),
-    components: [row]
-  });
+  // 🔒 LOAD OR CREATE LEADERBOARD MESSAGE
+  if (leaderboardData.messageId) {
+    try {
+      const msg = await leaderboardChannel.messages.fetch(leaderboardData.messageId);
+      await msg.edit({
+        content: await buildLeaderboard(),
+        components: [row]
+      });
+    } catch {
+      leaderboardData.messageId = null;
+    }
+  }
 
-  leaderboardMessageId = leaderboardMsg.id;
+  if (!leaderboardData.messageId) {
+    const msg = await leaderboardChannel.send({
+      content: await buildLeaderboard(),
+      components: [row]
+    });
+    leaderboardData.messageId = msg.id;
+    saveLeaderboard();
+  }
 
-  // ---- REMINDER LOOP (30 MIN) ----
+  // 🔁 REMINDER LOOP
   setInterval(async () => {
     const channel = await client.channels.fetch(SOLAR_CHANNEL_ID);
 
@@ -126,8 +142,6 @@ client.once("ready", async () => {
 
     trackedMessages.set(reminder.id, new Set());
     await reminder.react(REACTION_EMOJI);
-
-    console.log("Reminder sent at", londonTime);
   }, 60 * 1000);
 });
 
@@ -147,9 +161,8 @@ client.on("messageReactionAdd", async (reaction, user) => {
   points[user.id] = (points[user.id] || 0) + 1;
   savePoints();
 
-  // Update leaderboard
   const leaderboardChannel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
-  const leaderboardMsg = await leaderboardChannel.messages.fetch(leaderboardMessageId);
+  const leaderboardMsg = await leaderboardChannel.messages.fetch(leaderboardData.messageId);
 
   leaderboardMsg.edit({
     content: await buildLeaderboard(),
@@ -160,18 +173,21 @@ client.on("messageReactionAdd", async (reaction, user) => {
 // ===== INTERACTIONS =====
 client.on("interactionCreate", async interaction => {
 
-  // BUTTON: SHOW MY POINTS
+  // BUTTON
   if (interaction.isButton() && interaction.customId === "my_points") {
     const id = interaction.user.id;
     if (!points[id]) {
-      return interaction.reply({ content: "❌ You have no points yet.", ephemeral: true });
+      return interaction.reply({
+        content: "❌ You have no points yet.",
+        flags: MessageFlags.Ephemeral
+      });
     }
 
     const sorted = Object.entries(points).sort((a, b) => b[1] - a[1]);
     const rank = sorted.findIndex(x => x[0] === id) + 1;
 
     return interaction.reply({
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
       content:
         `🌿 **YOUR FAMILY POINTS**\n\n` +
         `👤 Name: ${interaction.user.username}\n` +
@@ -180,12 +196,15 @@ client.on("interactionCreate", async interaction => {
     });
   }
 
-  // ADMIN REMOVE POINTS
+  // ADMIN REMOVE
   if (interaction.isChatInputCommand() &&
       interaction.commandName === "remove-points") {
 
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-      return interaction.reply({ content: "Admin only", ephemeral: true });
+      return interaction.reply({
+        content: "Admin only",
+        flags: MessageFlags.Ephemeral
+      });
     }
 
     const user = interaction.options.getUser("user");
@@ -194,9 +213,7 @@ client.on("interactionCreate", async interaction => {
     points[user.id] = Math.max((points[user.id] || 0) - amount, 0);
     savePoints();
 
-    interaction.reply(
-      `Removed ${amount} 🌿 from ${user.username}. Remaining: ${points[user.id]} 🌿`
-    );
+    interaction.reply(`Removed ${amount} 🌿 from ${user.username}`);
   }
 });
 
