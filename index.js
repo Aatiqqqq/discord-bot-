@@ -16,7 +16,7 @@ const CLIENT_ID = "1455664767363715293";
 const SOLAR_CHANNEL_ID = "1452279184847142932";
 const LEADERBOARD_CHANNEL_ID = "1455964097656131708";
 const EMOJI = "🌿";
-const IMAGE_URL = "gtaonline-the-chop-shop-dlc-artwork-1600.png"; // must end with .png/.jpg
+const IMAGE_URL = "https://www.gtabase.com/igallery/gta5-character-art/gtaonline-the-chop-shop-dlc-artwork-1600.png"; // must end with .png/.jpg
 // ==================
 
 const client = new Client({
