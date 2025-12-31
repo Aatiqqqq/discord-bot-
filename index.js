@@ -3,7 +3,10 @@ const {
   GatewayIntentBits,
   Partials,
   REST,
-  Routes
+  Routes,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
 } = require("discord.js");
 const fs = require("fs");
 
@@ -13,6 +16,7 @@ const CLIENT_ID = "1455664767363715293";
 const SOLAR_CHANNEL_ID = "1452279184847142932";
 const LEADERBOARD_CHANNEL_ID = "1455964097656131708";
 const EMOJI = "🌿";
+const IMAGE_URL = "gtaonline-the-chop-shop-dlc-artwork-1600.png"; // must end with .png/.jpg
 // ==================
 
 const client = new Client({
@@ -25,66 +29,63 @@ const client = new Client({
 });
 
 // ===== LOAD POINTS =====
-let points = {};
-if (fs.existsSync("points.json")) {
-  points = JSON.parse(fs.readFileSync("points.json"));
-}
+let points = fs.existsSync("points.json")
+  ? JSON.parse(fs.readFileSync("points.json"))
+  : {};
+
 const savePoints = () =>
   fs.writeFileSync("points.json", JSON.stringify(points, null, 2));
 
-// Track reminder messages
 const trackedMessages = new Map();
 
-// ===== REGISTER SLASH COMMAND =====
+// ===== SLASH COMMAND =====
 const commands = [
-  {
-    name: "my-points",
-    description: "Show your family points and rank"
-  }
+  { name: "my-points", description: "Show your family points" }
 ];
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
-
 (async () => {
-  try {
-    await rest.put(
-      Routes.applicationCommands(CLIENT_ID),
-      { body: commands }
-    );
-    console.log("✅ Slash command registered");
-  } catch (err) {
-    console.error("Slash command error:", err);
-  }
+  await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+  console.log("✅ Slash command registered");
 })();
 
-// ===== BOT READY =====
+// ===== READY =====
 client.once("clientReady", () => {
-  console.log("✅ Bot logged in and running");
+  console.log("✅ Bot running");
 
-  // 🔥 TEST MODE — EVERY 10 SECONDS
+  // 🔥 TEST MODE: EVERY 10 SECONDS
   setInterval(async () => {
     try {
       const channel = await client.channels.fetch(SOLAR_CHANNEL_ID);
-      if (!channel) return;
 
-      const msg = await channel.send(
-        "🧪 **TEST MODE**\n\n" +
-        "🔧 **Repair all solar panels if planted**\n" +
-        "**Bonus will be provided 💰**\n\n" +
-        "🟢 *React if repaired*"
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("show_points")
+          .setLabel("🌿 Show My Points")
+          .setStyle(ButtonStyle.Success)
       );
+
+      const msg = await channel.send({
+        content:
+          "🧪 **TEST MODE**\n\n" +
+          "🔧 **Repair all solar panels if planted**\n" +
+          "**Bonus will be provided 💰**\n\n" +
+          "🟢 *React if repaired*",
+        files: [IMAGE_URL],
+        components: [row]
+      });
 
       trackedMessages.set(msg.id, new Set());
       await msg.react(EMOJI);
 
-      console.log("⏱️ Test reminder sent");
-    } catch (err) {
-      console.error("Send error:", err);
+      console.log("⏱️ Reminder sent");
+    } catch (e) {
+      console.error("Send error:", e);
     }
   }, 10_000);
 });
 
-// ===== REACTION HANDLER =====
+// ===== REACTION POINTS =====
 client.on("messageReactionAdd", async (reaction, user) => {
   if (user.bot) return;
   if (reaction.partial) await reaction.fetch();
@@ -93,19 +94,16 @@ client.on("messageReactionAdd", async (reaction, user) => {
   const msg = reaction.message;
   if (!trackedMessages.has(msg.id)) return;
 
-  const reactedUsers = trackedMessages.get(msg.id);
-  if (reactedUsers.has(user.id)) return;
+  const used = trackedMessages.get(msg.id);
+  if (used.has(user.id)) return;
 
-  reactedUsers.add(user.id);
+  used.add(user.id);
   points[user.id] = (points[user.id] || 0) + 1;
   savePoints();
 
   // Update leaderboard
-  const leaderboardChannel =
-    await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
-
-  const sorted = Object.entries(points)
-    .sort((a, b) => b[1] - a[1]);
+  const lb = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
+  const sorted = Object.entries(points).sort((a, b) => b[1] - a[1]);
 
   let text = "🏆 **FAMILY POINTS LEADERBOARD**\n\n";
   for (let i = 0; i < sorted.length; i++) {
@@ -113,14 +111,14 @@ client.on("messageReactionAdd", async (reaction, user) => {
     text += `${i + 1}️⃣ ${u.username} — ${sorted[i][1]} 🌿\n`;
   }
 
-  await leaderboardChannel.send(text);
+  await lb.send(text);
 });
 
-// ===== /my-points COMMAND =====
+// ===== BUTTON + SLASH HANDLER =====
 client.on("interactionCreate", async interaction => {
-  if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === "my-points") {
+  // BUTTON
+  if (interaction.isButton() && interaction.customId === "show_points") {
     const id = interaction.user.id;
 
     if (!points[id]) {
@@ -130,9 +128,32 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    const sorted = Object.entries(points)
-      .sort((a, b) => b[1] - a[1]);
+    const sorted = Object.entries(points).sort((a, b) => b[1] - a[1]);
+    const rank = sorted.findIndex(x => x[0] === id) + 1;
 
+    return interaction.reply({
+      ephemeral: true,
+      content:
+        `🌿 **YOUR FAMILY POINTS**\n\n` +
+        `👤 Name: ${interaction.user.username}\n` +
+        `🏆 Rank: #${rank}\n` +
+        `🌿 Points: ${points[id]} 🌿`
+    });
+  }
+
+  // SLASH COMMAND
+  if (interaction.isChatInputCommand() &&
+      interaction.commandName === "my-points") {
+
+    const id = interaction.user.id;
+    if (!points[id]) {
+      return interaction.reply({
+        content: "❌ You have no family points yet.",
+        ephemeral: true
+      });
+    }
+
+    const sorted = Object.entries(points).sort((a, b) => b[1] - a[1]);
     const rank = sorted.findIndex(x => x[0] === id) + 1;
 
     interaction.reply({
@@ -146,5 +167,4 @@ client.on("interactionCreate", async interaction => {
   }
 });
 
-// ===== LOGIN =====
 client.login(TOKEN);
