@@ -1,201 +1,141 @@
 const {
   Client,
   GatewayIntentBits,
-  Partials,
   REST,
   Routes,
+  EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle
 } = require("discord.js");
-const fs = require("fs");
 
 // ========= CONFIG =========
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = "1455664767363715293";
-const SOLAR_CHANNEL_ID = "1452279184847142932";
-const LEADERBOARD_CHANNEL_ID = "1455964097656131708";
-const IMAGE_URL = "https://www.gtabase.com/igallery/gta5-character-art/gtaonline-the-chop-shop-dlc-artwork-1600.png"; // .png or .jpg
-const EMOJI = "🌿";
+const REQUEST_ROLE_CHANNEL_ID = "1454175656182288596";
+const LOGS_CHANNEL_ID = "1433167140201955581";
 // ==========================
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMessageReactions
-  ],
-  partials: [Partials.Message, Partials.Channel, Partials.Reaction]
+  intents: [GatewayIntentBits.Guilds]
 });
 
-// ===== LOAD POINTS =====
-let points = {};
-if (fs.existsSync("points.json")) {
-  points = JSON.parse(fs.readFileSync("points.json"));
-}
-
-function savePoints() {
-  fs.writeFileSync("points.json", JSON.stringify(points, null, 2));
-}
-
-const trackedMessages = new Map();
-let leaderboardMessageId = null;
-
-// ===== SLASH COMMAND =====
+// ===== REGISTER SLASH COMMAND (ADMIN USE ONLY) =====
 const commands = [
-  { name: "my-points", description: "Show your family points and rank" }
+  {
+    name: "setup-application",
+    description: "Post application panel in request-role channel"
+  }
 ];
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 (async () => {
-  await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-  console.log("Slash command registered");
+  await rest.put(
+    Routes.applicationCommands(CLIENT_ID),
+    { body: commands }
+  );
+  console.log("✅ Slash command registered");
 })();
-
-// ===== BUILD LEADERBOARD =====
-async function buildLeaderboard() {
-  const sorted = Object.entries(points).sort((a, b) => b[1] - a[1]);
-  let text = "🏆 **FAMILY POINTS LEADERBOARD**\n\n";
-
-  if (sorted.length === 0) {
-    text += "No family points yet 🌿";
-  } else {
-    for (let i = 0; i < sorted.length; i++) {
-      const user = await client.users.fetch(sorted[i][0]);
-      text += `${i + 1}️⃣ ${user.username} — ${sorted[i][1]} 🌿\n`;
-    }
-  }
-  return text;
-}
 
 // ===== READY =====
 client.once("clientReady", async () => {
-  console.log("Bot running (PRODUCTION)");
+  console.log("✅ Family Application Bot Online");
 
-  // Create leaderboard message ONCE
-  const leaderboardChannel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
+  // 🔒 AUTO-POST PANEL (ENSURES IT EXISTS)
+  const channel = await client.channels.fetch(REQUEST_ROLE_CHANNEL_ID);
+
+  const embed = new EmbedBuilder()
+    .setColor(0xff0000)
+    .setTitle("👑 Welcome to Family")
+    .setDescription(
+      "Please fill your data **correctly** by pressing the button below.\n\n" +
+      "📋 **Family Role Application**"
+    )
+    .setFooter({ text: "Family Application System" });
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId("show_points")
-      .setLabel("🌿 Show My Points")
-      .setStyle(ButtonStyle.Success)
+      .setCustomId("open_application")
+      .setLabel("✍️ Fill Application")
+      .setStyle(ButtonStyle.Primary)
   );
 
-  const leaderboardMsg = await leaderboardChannel.send({
-    content: await buildLeaderboard(),
+  await channel.send({
+    embeds: [embed],
     components: [row]
   });
 
-  leaderboardMessageId = leaderboardMsg.id;
-
-  // ⏰ Reminder every 30 minutes (London time)
-  setInterval(async () => {
-    try {
-      const minute = new Intl.DateTimeFormat("en-GB", {
-        timeZone: "Europe/London",
-        minute: "2-digit"
-      }).format(new Date());
-
-      if (minute !== "00" && minute !== "30") return;
-
-      const solarChannel = await client.channels.fetch(SOLAR_CHANNEL_ID);
-
-      const msg = await solarChannel.send({
-        content:
-          "🔧 **Repair all solar panels if planted**\n" +
-          "**Bonus will be provided 💰**\n\n" +
-          "🟢 *React if repaired*",
-        files: [IMAGE_URL]
-      });
-
-      trackedMessages.set(msg.id, new Set());
-      await msg.react(EMOJI);
-
-      console.log("Reminder sent");
-    } catch (err) {
-      console.error("Reminder error:", err);
-    }
-  }, 60 * 1000);
-});
-
-// ===== REACTION HANDLER =====
-client.on("messageReactionAdd", async (reaction, user) => {
-  if (user.bot) return;
-  if (reaction.partial) await reaction.fetch();
-  if (reaction.emoji.name !== EMOJI) return;
-
-  const msg = reaction.message;
-  if (!trackedMessages.has(msg.id)) return;
-
-  const used = trackedMessages.get(msg.id);
-  if (used.has(user.id)) return;
-
-  used.add(user.id);
-  points[user.id] = (points[user.id] || 0) + 1;
-  savePoints();
-
-  const leaderboardChannel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
-  const leaderboardMsg =
-    await leaderboardChannel.messages.fetch(leaderboardMessageId);
-
-  leaderboardMsg.edit({
-    content: await buildLeaderboard(),
-    components: leaderboardMsg.components
-  });
+  console.log("📌 Application panel posted in request-role");
 });
 
 // ===== INTERACTIONS =====
 client.on("interactionCreate", async interaction => {
-  // BUTTON
-  if (interaction.isButton() && interaction.customId === "show_points") {
-    const id = interaction.user.id;
 
-    if (!points[id]) {
-      return interaction.reply({
-        content: "❌ You have no family points yet.",
-        ephemeral: true
-      });
-    }
+  /* ───── OPEN MODAL ───── */
+  if (interaction.isButton() &&
+      interaction.customId === "open_application") {
 
-    const sorted = Object.entries(points).sort((a, b) => b[1] - a[1]);
-    const rank = sorted.findIndex(x => x[0] === id) + 1;
+    const modal = new ModalBuilder()
+      .setCustomId("family_application")
+      .setTitle("Family Application");
 
-    return interaction.reply({
-      ephemeral: true,
-      content:
-        `🌿 **YOUR FAMILY POINTS**\n\n` +
-        `👤 Name: ${interaction.user.username}\n` +
-        `🏆 Rank: #${rank}\n` +
-        `🌿 Points: ${points[id]} 🌿`
-    });
+    const nameInput = new TextInputBuilder()
+      .setCustomId("name")
+      .setLabel("👤 Name")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
+    const regionInput = new TextInputBuilder()
+      .setCustomId("region")
+      .setLabel("🌍 Region")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
+    const ignInput = new TextInputBuilder()
+      .setCustomId("ign")
+      .setLabel("🎮 In-Game Name")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(nameInput),
+      new ActionRowBuilder().addComponents(regionInput),
+      new ActionRowBuilder().addComponents(ignInput)
+    );
+
+    return interaction.showModal(modal);
   }
 
-  // /my-points
-  if (
-    interaction.isChatInputCommand() &&
-    interaction.commandName === "my-points"
-  ) {
-    const id = interaction.user.id;
+  /* ───── FORM SUBMISSION ───── */
+  if (interaction.isModalSubmit() &&
+      interaction.customId === "family_application") {
 
-    if (!points[id]) {
-      return interaction.reply({
-        content: "❌ You have no family points yet.",
-        ephemeral: true
-      });
-    }
+    const name = interaction.fields.getTextInputValue("name");
+    const region = interaction.fields.getTextInputValue("region");
+    const ign = interaction.fields.getTextInputValue("ign");
 
-    const sorted = Object.entries(points).sort((a, b) => b[1] - a[1]);
-    const rank = sorted.findIndex(x => x[0] === id) + 1;
+    const logsChannel = await client.channels.fetch(LOGS_CHANNEL_ID);
 
-    interaction.reply({
-      ephemeral: true,
-      content:
-        `🌿 **YOUR FAMILY POINTS**\n\n` +
-        `👤 Name: ${interaction.user.username}\n` +
-        `🏆 Rank: #${rank}\n` +
-        `🌿 Points: ${points[id]} 🌿`
+    const embed = new EmbedBuilder()
+      .setColor(0x00ff99)
+      .setTitle("📥 New Family Application")
+      .addFields(
+        { name: "👤 Name", value: name, inline: true },
+        { name: "🌍 Region", value: region, inline: true },
+        { name: "🎮 In-Game Name", value: ign, inline: true },
+        { name: "👤 Discord User", value: interaction.user.tag, inline: false }
+      )
+      .setTimestamp();
+
+    await logsChannel.send({ embeds: [embed] });
+
+    return interaction.reply({
+      content: "✅ Your application has been submitted successfully!",
+      ephemeral: true
     });
   }
 });
