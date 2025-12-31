@@ -29,12 +29,14 @@ const client = new Client({
 });
 
 // ===== LOAD POINTS =====
-let points = fs.existsSync("points.json")
-  ? JSON.parse(fs.readFileSync("points.json"))
-  : {};
+let points = {};
+if (fs.existsSync("points.json")) {
+  points = JSON.parse(fs.readFileSync("points.json"));
+}
 
-const savePoints = () =>
+function savePoints() {
   fs.writeFileSync("points.json", JSON.stringify(points, null, 2));
+}
 
 const trackedMessages = new Map();
 let leaderboardMessageId = null;
@@ -45,8 +47,10 @@ const commands = [
 ];
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
+
 (async () => {
   await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+  console.log("Slash command registered");
 })();
 
 // ===== BUILD LEADERBOARD =====
@@ -54,12 +58,12 @@ async function buildLeaderboard() {
   const sorted = Object.entries(points).sort((a, b) => b[1] - a[1]);
   let text = "🏆 **FAMILY POINTS LEADERBOARD**\n\n";
 
-  if (!sorted.length) {
+  if (sorted.length === 0) {
     text += "No family points yet 🌿";
   } else {
     for (let i = 0; i < sorted.length; i++) {
-      const u = await client.users.fetch(sorted[i][0]);
-      text += `${i + 1}️⃣ ${u.username} — ${sorted[i][1]} 🌿\n`;
+      const user = await client.users.fetch(sorted[i][0]);
+      text += `${i + 1}️⃣ ${user.username} — ${sorted[i][1]} 🌿\n`;
     }
   }
   return text;
@@ -67,9 +71,9 @@ async function buildLeaderboard() {
 
 // ===== READY =====
 client.once("clientReady", async () => {
-  console.log("✅ Bot running (PRODUCTION MODE)");
+  console.log("Bot running (PRODUCTION)");
 
-  // 🏆 CREATE LEADERBOARD MESSAGE ONCE
+  // Create leaderboard message ONCE
   const leaderboardChannel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
 
   const row = new ActionRowBuilder().addComponents(
@@ -86,7 +90,7 @@ client.once("clientReady", async () => {
 
   leaderboardMessageId = leaderboardMsg.id;
 
-  // ⏰ REMINDER EVERY 30 MIN (LONDON TIME)
+  // ⏰ Reminder every 30 minutes (London time)
   setInterval(async () => {
     try {
       const minute = new Intl.DateTimeFormat("en-GB", {
@@ -109,9 +113,9 @@ client.once("clientReady", async () => {
       trackedMessages.set(msg.id, new Set());
       await msg.react(EMOJI);
 
-      console.log("🔔 Reminder sent (30 min)");
-    } catch (e) {
-      console.error("Reminder error:", e);
+      console.log("Reminder sent");
+    } catch (err) {
+      console.error("Reminder error:", err);
     }
   }, 60 * 1000);
 });
@@ -126,4 +130,74 @@ client.on("messageReactionAdd", async (reaction, user) => {
   if (!trackedMessages.has(msg.id)) return;
 
   const used = trackedMessages.get(msg.id);
-  if (used.has(user.id)) return
+  if (used.has(user.id)) return;
+
+  used.add(user.id);
+  points[user.id] = (points[user.id] || 0) + 1;
+  savePoints();
+
+  const leaderboardChannel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
+  const leaderboardMsg =
+    await leaderboardChannel.messages.fetch(leaderboardMessageId);
+
+  leaderboardMsg.edit({
+    content: await buildLeaderboard(),
+    components: leaderboardMsg.components
+  });
+});
+
+// ===== INTERACTIONS =====
+client.on("interactionCreate", async interaction => {
+  // BUTTON
+  if (interaction.isButton() && interaction.customId === "show_points") {
+    const id = interaction.user.id;
+
+    if (!points[id]) {
+      return interaction.reply({
+        content: "❌ You have no family points yet.",
+        ephemeral: true
+      });
+    }
+
+    const sorted = Object.entries(points).sort((a, b) => b[1] - a[1]);
+    const rank = sorted.findIndex(x => x[0] === id) + 1;
+
+    return interaction.reply({
+      ephemeral: true,
+      content:
+        `🌿 **YOUR FAMILY POINTS**\n\n` +
+        `👤 Name: ${interaction.user.username}\n` +
+        `🏆 Rank: #${rank}\n` +
+        `🌿 Points: ${points[id]} 🌿`
+    });
+  }
+
+  // /my-points
+  if (
+    interaction.isChatInputCommand() &&
+    interaction.commandName === "my-points"
+  ) {
+    const id = interaction.user.id;
+
+    if (!points[id]) {
+      return interaction.reply({
+        content: "❌ You have no family points yet.",
+        ephemeral: true
+      });
+    }
+
+    const sorted = Object.entries(points).sort((a, b) => b[1] - a[1]);
+    const rank = sorted.findIndex(x => x[0] === id) + 1;
+
+    interaction.reply({
+      ephemeral: true,
+      content:
+        `🌿 **YOUR FAMILY POINTS**\n\n` +
+        `👤 Name: ${interaction.user.username}\n` +
+        `🏆 Rank: #${rank}\n` +
+        `🌿 Points: ${points[id]} 🌿`
+    });
+  }
+});
+
+client.login(TOKEN);
