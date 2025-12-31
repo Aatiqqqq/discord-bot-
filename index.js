@@ -86,7 +86,8 @@ async function buildLeaderboard() {
 }
 
 // ===== READY =====
-client.once("ready", async () => {
+client.once("clientReady", () => {
+{
   console.log(`Logged in as ${client.user.tag}`);
 
   const leaderboardChannel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
@@ -121,29 +122,18 @@ client.once("ready", async () => {
   }
 
   // 🔁 REMINDER LOOP
-  setInterval(async () => {
+client.once("clientReady", async () => {
+  console.log("Bot ready test");
+
+  try {
     const channel = await client.channels.fetch(SOLAR_CHANNEL_ID);
-
-    const londonTime = new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Europe/London",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false
-    }).format(new Date());
-
-    const [, minute] = londonTime.split(":").map(Number);
-    if (minute !== 0 && minute !== 30) return;
-
-    const reminder = await channel.send(
-      "🔧 **Repair all solar panels if planted**\n" +
-      "**Bonus will be provided 💰**\n\n" +
-      "🟢 *React if repaired*"
-    );
-
-    trackedMessages.set(reminder.id, new Set());
-    await reminder.react(REACTION_EMOJI);
-  }, 60 * 1000);
+    await channel.send("✅ BOT TEST MESSAGE — THIS SHOULD APPEAR IMMEDIATELY");
+    console.log("Test message sent");
+  } catch (err) {
+    console.error("Send failed:", err);
+  }
 });
+
 
 // ===== REACTION HANDLER =====
 client.on("messageReactionAdd", async (reaction, user) => {
