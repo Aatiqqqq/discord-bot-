@@ -13,6 +13,7 @@ const fs = require("fs");
 
 // ========= CONFIG =========
 const TOKEN = process.env.TOKEN;
+const CLIENT_ID = "1455664767363715293";       // pasted in code
 const SOLAR_CHANNEL_ID = "1452279184847142932";
 const LEADERBOARD_CHANNEL_ID = "1455964097656131708";
 const REACTION_EMOJI = "🌿";
