@@ -91,17 +91,31 @@ client.once("clientReady", async () => {
   leaderboardMessageId = leaderboardMsg.id;
 
   // ⏰ Reminder every 30 minutes (London time)
-  setInterval(async () => {
-   let lastSent = 0;
+ let lastSent = 0;
+client.once("ready", async () => {
+  console.log("Bot running (PRODUCTION)");
 
-client.once("ready", () => {
-  console.log("🤖 Bot is ready");
+  // ===== LEADERBOARD MESSAGE =====
+  const leaderboardChannel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
 
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("show_points")
+      .setLabel("🌿 Show My Points")
+      .setStyle(ButtonStyle.Success)
+  );
+
+  const leaderboardMsg = await leaderboardChannel.send({
+    content: await buildLeaderboard(),
+    components: [row]
+  });
+
+  leaderboardMessageId = leaderboardMsg.id;
+
+  // ===== 30-MINUTE REMINDER =====
   setInterval(async () => {
     try {
       const now = Date.now();
-
-      // 30 minutes = 1800000 ms
       if (now - lastSent < 30 * 60 * 1000) return;
 
       const solarChannel = await client.channels.fetch(SOLAR_CHANNEL_ID);
