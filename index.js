@@ -98,33 +98,36 @@ client.once("ready", async () => {
   leaderboardMessageId = leaderboardMsg.id;
 
   // ===== REMINDER (EVERY 30 MINUTES) =====
-  setInterval(async () => {
-    try {
-      const now = Date.now();
+  let lastSent = Date.now();
 
-      // ⏰ EXACT 30 MIN CHECK (NO HOURLY BUG)
-      if (now - lastSent < 30 * 60 * 1000) return;
+setInterval(async () => {
+  try {
+    console.log("⏱ interval check", new Date().toLocaleTimeString());
 
-      const solarChannel = await client.channels.fetch(SOLAR_CHANNEL_ID);
+    const now = Date.now();
 
-      const msg = await solarChannel.send({
-        content:
-          "🔧 **Repair all solar panels if planted**\n" +
-          "**Bonus will be provided 💰**\n\n" +
-          "🟢 *React if repaired*",
-        files: [IMAGE_URL]
-      });
+    // wait full 30 minutes
+    if (now - lastSent < 30 * 60 * 1000) return;
 
-      trackedMessages.set(msg.id, new Set());
-      await msg.react(EMOJI);
+    const solarChannel = await client.channels.fetch(SOLAR_CHANNEL_ID);
 
-      lastSent = now;
-      console.log("✅ Reminder sent (30 minutes)");
-    } catch (err) {
-      console.error("Reminder error:", err);
-    }
-  }, 60 * 1000); // check every minute
-});
+    const msg = await solarChannel.send({
+      content:
+        "🔧 **Repair all solar panels if planted**\n" +
+        "**Bonus will be provided 💰**\n\n" +
+        "🟢 *React if repaired*",
+      files: [IMAGE_URL]
+    });
+
+    trackedMessages.set(msg.id, new Set());
+    await msg.react(EMOJI);
+
+    lastSent = now;
+    console.log("✅ Reminder sent at", new Date().toLocaleTimeString());
+  } catch (err) {
+    console.error("❌ Reminder error:", err);
+  }
+}, 60 * 1000);
 
 // ===== REACTION HANDLER =====
 client.on("messageReactionAdd", async (reaction, user) => {
