@@ -10,15 +10,20 @@ const {
 } = require("discord.js");
 const fs = require("fs");
 
-// ========= CONFIG =========
+// ================= CONFIG =================
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = "1455664767363715293";
+
 const SOLAR_CHANNEL_ID = "1452279184847142932";
 const LEADERBOARD_CHANNEL_ID = "1455964097656131708";
-const IMAGE_URL = "https://www.gtabase.com/igallery/gta5-character-art/gtaonline-the-chop-shop-dlc-artwork-1600.png"; // .png or .jpg
-const EMOJI = "🌿";
-// ==========================
 
+const IMAGE_URL =
+  "https://www.gtabase.com/igallery/gta5-character-art/gtaonline-the-chop-shop-dlc-artwork-1600.png";
+
+const EMOJI = "🌿";
+// =========================================
+
+// ===== CLIENT =====
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -28,7 +33,7 @@ const client = new Client({
   partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
-// ===== LOAD POINTS =====
+// ===== POINTS STORAGE =====
 let points = {};
 if (fs.existsSync("points.json")) {
   points = JSON.parse(fs.readFileSync("points.json"));
@@ -50,7 +55,7 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 (async () => {
   await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-  console.log("Slash command registered");
+  console.log("✅ Slash command registered");
 })();
 
 // ===== BUILD LEADERBOARD =====
@@ -70,30 +75,10 @@ async function buildLeaderboard() {
 }
 
 // ===== READY =====
-client.once("clientReady", async () => {
-  console.log("Bot running (PRODUCTION)");
+let lastSent = 0; // 🔑 IMPORTANT (30-min tracker)
 
-  // Create leaderboard message ONCE
-  const leaderboardChannel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId("show_points")
-      .setLabel("🌿 Show My Points")
-      .setStyle(ButtonStyle.Success)
-  );
-
-  const leaderboardMsg = await leaderboardChannel.send({
-    content: await buildLeaderboard(),
-    components: [row]
-  });
-
-  leaderboardMessageId = leaderboardMsg.id;
-
-  // ⏰ Reminder every 30 minutes (London time)
- let lastSent = 0;
 client.once("ready", async () => {
-  console.log("Bot running (PRODUCTION)");
+  console.log(`🤖 Bot online as ${client.user.tag}`);
 
   // ===== LEADERBOARD MESSAGE =====
   const leaderboardChannel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
@@ -112,10 +97,12 @@ client.once("ready", async () => {
 
   leaderboardMessageId = leaderboardMsg.id;
 
-  // ===== 30-MINUTE REMINDER =====
+  // ===== REMINDER (EVERY 30 MINUTES) =====
   setInterval(async () => {
     try {
       const now = Date.now();
+
+      // ⏰ EXACT 30 MIN CHECK (NO HOURLY BUG)
       if (now - lastSent < 30 * 60 * 1000) return;
 
       const solarChannel = await client.channels.fetch(SOLAR_CHANNEL_ID);
@@ -132,43 +119,47 @@ client.once("ready", async () => {
       await msg.react(EMOJI);
 
       lastSent = now;
-      console.log("✅ Reminder sent (30 min)");
+      console.log("✅ Reminder sent (30 minutes)");
     } catch (err) {
       console.error("Reminder error:", err);
     }
-  }, 60 * 1000);
+  }, 60 * 1000); // check every minute
 });
-
 
 // ===== REACTION HANDLER =====
 client.on("messageReactionAdd", async (reaction, user) => {
-  if (user.bot) return;
-  if (reaction.partial) await reaction.fetch();
-  if (reaction.emoji.name !== EMOJI) return;
+  try {
+    if (reaction.partial) await reaction.fetch();
+    if (user.bot) return;
+    if (reaction.emoji.name !== EMOJI) return;
 
-  const msg = reaction.message;
-  if (!trackedMessages.has(msg.id)) return;
+    const msg = reaction.message;
+    if (!trackedMessages.has(msg.id)) return;
 
-  const used = trackedMessages.get(msg.id);
-  if (used.has(user.id)) return;
+    const used = trackedMessages.get(msg.id);
+    if (used.has(user.id)) return;
 
-  used.add(user.id);
-  points[user.id] = (points[user.id] || 0) + 1;
-  savePoints();
+    used.add(user.id);
+    points[user.id] = (points[user.id] || 0) + 1;
+    savePoints();
 
-  const leaderboardChannel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
-  const leaderboardMsg =
-    await leaderboardChannel.messages.fetch(leaderboardMessageId);
+    const leaderboardChannel = await client.channels.fetch(
+      LEADERBOARD_CHANNEL_ID
+    );
+    const leaderboardMsg =
+      await leaderboardChannel.messages.fetch(leaderboardMessageId);
 
-  leaderboardMsg.edit({
-    content: await buildLeaderboard(),
-    components: leaderboardMsg.components
-  });
+    leaderboardMsg.edit({
+      content: await buildLeaderboard(),
+      components: leaderboardMsg.components
+    });
+  } catch (err) {
+    console.error("Reaction error:", err);
+  }
 });
 
 // ===== INTERACTIONS =====
 client.on("interactionCreate", async interaction => {
-  // BUTTON
   if (interaction.isButton() && interaction.customId === "show_points") {
     const id = interaction.user.id;
 
@@ -192,7 +183,6 @@ client.on("interactionCreate", async interaction => {
     });
   }
 
-  // /my-points
   if (
     interaction.isChatInputCommand() &&
     interaction.commandName === "my-points"
@@ -220,4 +210,5 @@ client.on("interactionCreate", async interaction => {
   }
 });
 
+// ===== LOGIN =====
 client.login(TOKEN);
