@@ -21,8 +21,6 @@ const IMAGE_URL =
   "https://www.gtabase.com/igallery/gta5-character-art/gtaonline-the-chop-shop-dlc-artwork-1600.png";
 
 const EMOJI = "🌿";
-const THIRTY_MINUTES = 30 * 60 * 1000;
-const REMINDER_FILE = "./lastReminder.json";
 // =========================================
 
 // ================= CLIENT =================
@@ -47,22 +45,6 @@ function savePoints() {
 
 const trackedMessages = new Map();
 let leaderboardMessageId = null;
-
-// ================= REMINDER STORAGE =================
-function getLastSent() {
-  if (!fs.existsSync(REMINDER_FILE)) {
-    fs.writeFileSync(REMINDER_FILE, JSON.stringify({ lastSent: 0 }));
-    return 0;
-  }
-  return JSON.parse(fs.readFileSync(REMINDER_FILE, "utf8")).lastSent || 0;
-}
-
-function setLastSent(time) {
-  fs.writeFileSync(
-    REMINDER_FILE,
-    JSON.stringify({ lastSent: time }, null, 2)
-  );
-}
 
 // ================= SLASH COMMAND =================
 const commands = [
@@ -102,6 +84,7 @@ async function buildLeaderboard() {
 client.once("ready", async () => {
   console.log(`🤖 Bot online as ${client.user.tag}`);
 
+  // Create leaderboard message once
   const leaderboardChannel = await client.channels.fetch(
     LEADERBOARD_CHANNEL_ID
   );
@@ -121,20 +104,32 @@ client.once("ready", async () => {
   leaderboardMessageId = leaderboardMsg.id;
 });
 
-// ================= REMINDER LOOP =================
+// ================= CLOCK-ALIGNED REMINDER =================
+let lastSlot = null; // remembers :00 or :30
+
 setInterval(async () => {
   try {
-    const lastSent = getLastSent();
-    const now = Date.now();
+    const now = new Date();
 
-    console.log(
-      "⏱ Reminder check | last:",
-      new Date(lastSent).toLocaleTimeString(),
-      "| now:",
-      new Date(now).toLocaleTimeString()
+    // Asia/Kolkata minute
+    const minute = Number(
+      now.toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        minute: "2-digit"
+      })
     );
 
-    if (now - lastSent < THIRTY_MINUTES) return;
+    // Only at :00 or :30
+    if (minute !== 0 && minute !== 30) {
+      lastSlot = null;
+      return;
+    }
+
+    // Prevent duplicate in same minute
+    if (lastSlot === minute) return;
+    lastSlot = minute;
+
+    console.log("⏰ Clock reminder at", minute === 0 ? ":00" : ":30");
 
     const channel = await client.channels.fetch(SOLAR_CHANNEL_ID);
 
@@ -149,12 +144,11 @@ setInterval(async () => {
     trackedMessages.set(msg.id, new Set());
     await msg.react(EMOJI);
 
-    setLastSent(now);
     console.log("✅ Reminder sent");
   } catch (err) {
     console.error("❌ Reminder error:", err);
   }
-}, 60 * 1000);
+}, 20 * 1000); // check every 20 seconds
 
 // ================= REACTIONS =================
 client.on("messageReactionAdd", async (reaction, user) => {
@@ -164,81 +158,4 @@ client.on("messageReactionAdd", async (reaction, user) => {
     if (reaction.emoji.name !== EMOJI) return;
 
     const msg = reaction.message;
-    if (!trackedMessages.has(msg.id)) return;
-
-    const used = trackedMessages.get(msg.id);
-    if (used.has(user.id)) return;
-
-    used.add(user.id);
-    points[user.id] = (points[user.id] || 0) + 1;
-    savePoints();
-
-    const leaderboardChannel = await client.channels.fetch(
-      LEADERBOARD_CHANNEL_ID
-    );
-    const leaderboardMsg =
-      await leaderboardChannel.messages.fetch(leaderboardMessageId);
-
-    leaderboardMsg.edit({
-      content: await buildLeaderboard(),
-      components: leaderboardMsg.components
-    });
-  } catch (err) {
-    console.error("Reaction error:", err);
-  }
-});
-
-// ================= INTERACTIONS =================
-client.on("interactionCreate", async interaction => {
-  if (interaction.isButton() && interaction.customId === "show_points") {
-    const id = interaction.user.id;
-
-    if (!points[id]) {
-      return interaction.reply({
-        content: "❌ You have no family points yet.",
-        ephemeral: true
-      });
-    }
-
-    const sorted = Object.entries(points).sort((a, b) => b[1] - a[1]);
-    const rank = sorted.findIndex(x => x[0] === id) + 1;
-
-    interaction.reply({
-      ephemeral: true,
-      content:
-        `🌿 **YOUR FAMILY POINTS**\n\n` +
-        `👤 ${interaction.user.username}\n` +
-        `🏆 Rank: #${rank}\n` +
-        `🌿 Points: ${points[id]} 🌿`
-    });
-  }
-
-  if (
-    interaction.isChatInputCommand() &&
-    interaction.commandName === "my-points"
-  ) {
-    const id = interaction.user.id;
-
-    if (!points[id]) {
-      return interaction.reply({
-        content: "❌ You have no family points yet.",
-        ephemeral: true
-      });
-    }
-
-    const sorted = Object.entries(points).sort((a, b) => b[1] - a[1]);
-    const rank = sorted.findIndex(x => x[0] === id) + 1;
-
-    interaction.reply({
-      ephemeral: true,
-      content:
-        `🌿 **YOUR FAMILY POINTS**\n\n` +
-        `👤 ${interaction.user.username}\n` +
-        `🏆 Rank: #${rank}\n` +
-        `🌿 Points: ${points[id]} 🌿`
-    });
-  }
-});
-
-// ================= LOGIN =================
-client.login(TOKEN);
+    if (!trackedMessages.has
