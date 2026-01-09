@@ -23,7 +23,7 @@ const IMAGE_URL =
 const EMOJI = "🌿";
 // =========================================
 
-// ===== CLIENT =====
+// ================= CLIENT =================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -33,32 +33,42 @@ const client = new Client({
   partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
-// ===== POINTS STORAGE =====
+// ================= POINTS STORAGE =================
 let points = {};
 if (fs.existsSync("points.json")) {
-  points = JSON.parse(fs.readFileSync("points.json"));
+  points = JSON.parse(fs.readFileSync("points.json", "utf8"));
 }
 
 function savePoints() {
   fs.writeFileSync("points.json", JSON.stringify(points, null, 2));
 }
 
+// Track reminder messages so points count only once per message
 const trackedMessages = new Map();
 let leaderboardMessageId = null;
 
-// ===== SLASH COMMAND =====
+// ================= SLASH COMMAND =================
 const commands = [
-  { name: "my-points", description: "Show your family points and rank" }
+  {
+    name: "my-points",
+    description: "Show your family points and rank"
+  }
 ];
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 (async () => {
-  await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-  console.log("✅ Slash command registered");
+  try {
+    await rest.put(Routes.applicationCommands(CLIENT_ID), {
+      body: commands
+    });
+    console.log("✅ Slash command registered");
+  } catch (err) {
+    console.error("Slash command error:", err);
+  }
 })();
 
-// ===== BUILD LEADERBOARD =====
+// ================= LEADERBOARD BUILDER =================
 async function buildLeaderboard() {
   const sorted = Object.entries(points).sort((a, b) => b[1] - a[1]);
   let text = "🏆 **FAMILY POINTS LEADERBOARD**\n\n";
@@ -71,17 +81,22 @@ async function buildLeaderboard() {
       text += `${i + 1}️⃣ ${user.username} — ${sorted[i][1]} 🌿\n`;
     }
   }
+
   return text;
 }
 
-// ===== READY =====
-let lastSent = 0; // 🔑 IMPORTANT (30-min tracker)
+// ================= REMINDER LOGIC =================
+const THIRTY_MINUTES = 30 * 60 * 1000;
+let lastSent = Date.now(); // start counting from bot start
 
+// ================= READY =================
 client.once("ready", async () => {
   console.log(`🤖 Bot online as ${client.user.tag}`);
 
-  // ===== LEADERBOARD MESSAGE =====
-  const leaderboardChannel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
+  // ===== CREATE LEADERBOARD MESSAGE (ONCE) =====
+  const leaderboardChannel = await client.channels.fetch(
+    LEADERBOARD_CHANNEL_ID
+  );
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -97,39 +112,36 @@ client.once("ready", async () => {
 
   leaderboardMessageId = leaderboardMsg.id;
 
-  // ===== REMINDER (EVERY 30 MINUTES) =====
-  let lastSent = Date.now();
+  // ===== REMINDER EVERY 30 MINUTES =====
+  setInterval(async () => {
+    try {
+      const now = Date.now();
+      console.log("⏱ interval check", new Date().toLocaleTimeString());
 
-setInterval(async () => {
-  try {
-    console.log("⏱ interval check", new Date().toLocaleTimeString());
+      if (now - lastSent < THIRTY_MINUTES) return;
 
-    const now = Date.now();
+      const solarChannel = await client.channels.fetch(SOLAR_CHANNEL_ID);
 
-    // wait full 30 minutes
-    if (now - lastSent < 30 * 60 * 1000) return;
+      const msg = await solarChannel.send({
+        content:
+          "🔧 **Repair all solar panels if planted**\n" +
+          "**Bonus will be provided 💰**\n\n" +
+          "🟢 *React if repaired*",
+        files: [IMAGE_URL]
+      });
 
-    const solarChannel = await client.channels.fetch(SOLAR_CHANNEL_ID);
+      trackedMessages.set(msg.id, new Set());
+      await msg.react(EMOJI);
 
-    const msg = await solarChannel.send({
-      content:
-        "🔧 **Repair all solar panels if planted**\n" +
-        "**Bonus will be provided 💰**\n\n" +
-        "🟢 *React if repaired*",
-      files: [IMAGE_URL]
-    });
+      lastSent = now;
+      console.log("✅ Reminder sent");
+    } catch (err) {
+      console.error("Reminder error:", err);
+    }
+  }, 60 * 1000); // check every minute
+});
 
-    trackedMessages.set(msg.id, new Set());
-    await msg.react(EMOJI);
-
-    lastSent = now;
-    console.log("✅ Reminder sent at", new Date().toLocaleTimeString());
-  } catch (err) {
-    console.error("❌ Reminder error:", err);
-  }
-}, 60 * 1000);
-
-// ===== REACTION HANDLER =====
+// ================= REACTION HANDLER =================
 client.on("messageReactionAdd", async (reaction, user) => {
   try {
     if (reaction.partial) await reaction.fetch();
@@ -161,8 +173,9 @@ client.on("messageReactionAdd", async (reaction, user) => {
   }
 });
 
-// ===== INTERACTIONS =====
+// ================= INTERACTIONS =================
 client.on("interactionCreate", async interaction => {
+  // BUTTON
   if (interaction.isButton() && interaction.customId === "show_points") {
     const id = interaction.user.id;
 
@@ -186,6 +199,7 @@ client.on("interactionCreate", async interaction => {
     });
   }
 
+  // /my-points
   if (
     interaction.isChatInputCommand() &&
     interaction.commandName === "my-points"
@@ -213,5 +227,5 @@ client.on("interactionCreate", async interaction => {
   }
 });
 
-// ===== LOGIN =====
+// ================= LOGIN =================
 client.login(TOKEN);
