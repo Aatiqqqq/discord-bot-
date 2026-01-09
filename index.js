@@ -92,33 +92,34 @@ client.once("clientReady", async () => {
 
   // ⏰ Reminder every 30 minutes (London time)
   setInterval(async () => {
-    try {
-      const minute = new Intl.DateTimeFormat("en-GB", {
-        timeZone: "Europe/London",
-        minute: "2-digit"
-      }).format(new Date());
+    let lastSent = 0;
 
-      if (minute !== "00" && minute !== "30") return;
+setInterval(async () => {
+  try {
+    const now = Date.now();
 
-      const solarChannel = await client.channels.fetch(SOLAR_CHANNEL_ID);
+    // 30 minutes gap
+    if (now - lastSent < 30 * 60 * 1000) return;
 
-      const msg = await solarChannel.send({
-        content:
-          "🔧 **Repair all solar panels if planted**\n" +
-          "**Bonus will be provided 💰**\n\n" +
-          "🟢 *React if repaired*",
-        files: [IMAGE_URL]
-      });
+    const solarChannel = await client.channels.fetch(SOLAR_CHANNEL_ID);
 
-      trackedMessages.set(msg.id, new Set());
-      await msg.react(EMOJI);
+    const msg = await solarChannel.send({
+      content:
+        "🔧 **Repair all solar panels if planted**\n" +
+        "**Bonus will be provided 💰**\n\n" +
+        "🟢 *React if repaired*",
+      files: [IMAGE_URL]
+    });
 
-      console.log("Reminder sent");
-    } catch (err) {
-      console.error("Reminder error:", err);
-    }
-  }, 60 * 1000);
-});
+    trackedMessages.set(msg.id, new Set());
+    await msg.react(EMOJI);
+
+    lastSent = now; // ✅ IMPORTANT
+    console.log("✅ Reminder sent (30 min)");
+  } catch (err) {
+    console.error("Reminder error:", err);
+  }
+}, 60 * 1000);
 
 // ===== REACTION HANDLER =====
 client.on("messageReactionAdd", async (reaction, user) => {
